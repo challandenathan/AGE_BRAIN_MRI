@@ -1,0 +1,6 @@
+numpy >= 2.3.3
+matplotlib
+pandas >= 3.0
+scikit-learn >= 1.8
+ipykernel
+plotly >= 6
