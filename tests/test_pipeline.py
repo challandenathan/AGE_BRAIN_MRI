@@ -90,6 +90,17 @@ class TestPipeline(unittest.TestCase):
         names = selected_feature_names(self.cfg, self.X, self.y)
         self.assertEqual(len(names), self.cfg.n_features)
 
+    def test_alternative_selection_modes(self):
+        for sel, score in [("lasso", "f_regression"), ("kbest", "spearman")]:
+            with self.subTest(selection=sel, score=score):
+                cfg = small_cfg()
+                cfg.selection = sel
+                cfg.score_func = score
+                pre = make_preprocessor(cfg).fit(self.X, self.y)
+                out = pre.transform(self.X_test)
+                self.assertEqual(out.shape, (50, cfg.n_features))
+                self.assertTrue(np.isfinite(out).all())
+
     def test_each_model_fits_and_predicts(self):
         for name in ["ridge", "xgb", "histgb", "svr"]:
             with self.subTest(model=name):

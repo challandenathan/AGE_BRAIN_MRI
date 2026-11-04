@@ -28,15 +28,18 @@ class Config:
     n_quantiles: int = 500          # QuantileTransformer resolution
 
     # --- subtask 2: feature selection ---
-    n_features: int = 180           # k for SelectKBest
-    score_func: str = "f_regression"  # "f_regression" | "mutual_info"
+    selection: str = "kbest"        # "kbest" (SelectKBest) | "lasso" (SelectFromModel)
+    n_features: int = 180           # k features kept
+    score_func: str = "f_regression"  # "f_regression" | "mutual_info" | "spearman"
 
     # --- evaluation ---
     n_splits: int = 5
     n_repeats: int = 3              # RepeatedKFold(5 folds x 3 repeats)
 
     # --- subtask 3: regression ---
-    model: str = "svr"              # key of models.MODELS
+    model: str = "vote"             # key of models.MODELS; "vote" = average of
+                                    # SVR + GP + boosted trees (best repeated-CV
+                                    # score; "svr" alone is within noise of it)
     svr_C: float = 166.5            # tuned by RandomizedSearchCV (see README)
     svr_gamma: float = 0.00907
     svr_epsilon: float = 0.03

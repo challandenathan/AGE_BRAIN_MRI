@@ -13,7 +13,8 @@ Entry point of the project. Reproduces the submission end-to-end:
 Pipeline (all steps fitted inside every CV fold, so evaluation is leak-free):
     VarianceThreshold -> MADOutlierMasker -> SimpleImputer(median)
     -> QuantileTransformer(normal) -> SelectKBest(f_regression, k)
-    -> regressor (SVR-RBF by default, or the Ridge+XGB+GP stack)
+    -> regressor (by default the average of SVR + GP + XGBoost; see
+       --model for the alternatives: svr, stack, xgb, histgb, knn, ...)
 
 Metric: R^2 via RepeatedKFold(5 x 3, seed 42). Predictions on X_test are
 clipped to the observed age range and written in the sample.csv format.
@@ -38,9 +39,14 @@ def parse_args():
     p.add_argument("--no-submit", action="store_true", help="only run CV, do not write submission.csv")
     p.add_argument("--model", default=None, choices=sorted(MODELS),
                    help="regressor to use (default: cfg.model)")
-    p.add_argument("--n-features", type=int, default=None, help="override SelectKBest k")
+    p.add_argument("--n-features", type=int, default=None, help="override the number of selected features k")
     p.add_argument("--outlier-thresh", type=float, default=None,
                    help="robust-sigma threshold of the outlier masker (inf disables)")
+    p.add_argument("--selection", default=None, choices=["kbest", "lasso"],
+                   help="feature-selection method (default: cfg.selection)")
+    p.add_argument("--score-func", default=None,
+                   choices=["f_regression", "mutual_info", "spearman"],
+                   help="SelectKBest scoring function (default: cfg.score_func)")
     p.add_argument("--repeats", type=int, default=None, help="override CV repeats")
     p.add_argument("--seed", type=int, default=None, help="override the seed")
     return p.parse_args()
@@ -55,6 +61,10 @@ def main():
         cfg.n_features = args.n_features
     if args.outlier_thresh is not None:
         cfg.outlier_thresh = args.outlier_thresh
+    if args.selection is not None:
+        cfg.selection = args.selection
+    if args.score_func is not None:
+        cfg.score_func = args.score_func
     if args.repeats is not None:
         cfg.n_repeats = args.repeats
     if args.seed is not None:

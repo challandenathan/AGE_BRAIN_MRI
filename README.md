@@ -13,6 +13,7 @@ pip install -r requirements.txt
 python solution.py               # CV-evaluate, fit on all data, write submission.csv
 python solution.py --no-submit   # CV evaluation only
 python solution.py --compare     # benchmark all candidate models -> experiments/cv_results.csv
+python solution.py --model svr   # any model from brainage.models.MODELS
 python -m unittest discover -s tests   # test suite (stdlib unittest, no extra deps)
 ```
 
@@ -27,10 +28,10 @@ predictions clipped to the observed age range [42, 97].
 │   ├── config.py          #   paths, seed, hyperparameters — the only place to tweak
 │   ├── data.py            #   loading + integrity checks, submission writer
 │   ├── preprocessing.py   #   outlier masker, imputation, scaling, feature selection
-│   ├── models.py          #   model factories: ridge / xgb / histgb / svr / stack
+│   ├── models.py          #   model factories (12 models incl. stack + vote)
 │   └── evaluate.py        #   repeated-CV evaluation, model comparison, OOF diagnostics
-├── tests/test_pipeline.py # leak-free / shape / submission-format tests
-├── experiments/           # CV results (cv_results.csv, cv_scores_final.csv)
+├── tests/test_pipeline.py # leak-free / shape / selection-mode / submission tests
+├── experiments/           # CV results (cv_results.csv, cv_grid_sweep.csv, cv_scores_final.csv)
 ├── data/                  # X_train.csv, y_train.csv, X_test.csv
 ├── *.ipynb                # exploration notebooks (evidence for every choice below)
 ├── selected_features.csv  # the k=180 features kept by the final pipeline
@@ -54,37 +55,69 @@ VarianceThreshold(0)                       drop the 4 constant features
 → QuantileTransformer(output="normal")     rank → normal map; neutralizes the
                                              ~1e6-scale feature block and squashes
                                              residual extremes to the boundary
-→ SelectKBest(f_regression, k=180)         subtask 2: keep the top-180 features;
-                                             k chosen by a CV sweep (sharp optimum
-                                             at k≈150–200, collapse beyond k≈300)
-→ SVR(RBF, C=166.5, gamma=0.00907, eps=0.03)  subtask 3: age regression, on
-                                             standardized y (TransformedTargetRegressor)
+→ SelectKBest(f_regression, k=180)         subtask 2: keep the top-180 features
+→ VotingRegressor[ SVR(RBF) + GP + XGB ]   subtask 3: average of three model
+                                             families (final model, see below)
 ```
 
-Hyperparameters (C, gamma, epsilon, k, outlier threshold) were tuned with
-`RandomizedSearchCV` under the same CV protocol; a confirmation mini-grid is in
-the exploration notebooks.
+## Robustness sweeps (what we tested so no signal is lost)
 
-## Results (honest CV on the 1212 training samples)
+All under honest CV (RepeatedKFold, whole pipeline refit per fold). Full tables
+in `experiments/cv_grid_sweep.csv` (34 runs) and `experiments/cv_results.csv`.
 
-Evaluation: **RepeatedKFold(5 folds × 3 repeats, seed 42)**, scoring R², the
-whole pipeline refit inside every fold.
+**Outlier handling** — MAD-mask threshold swept over {5, 8, 12, off}: at k=180
+the score barely moves (0.570–0.574), because the quantile transform already
+squashes spikes to the distribution boundary; the mask is kept as a safety net
+(thresh=8). k swept over {110, 180, 250, 400, 832}: sharp optimum at **k=180**
+(0.57; k=250 → 0.48, k=400 → 0.20, k=832 → 0.0) — the extra features are pure
+noise and actively hurt the SVR.
 
-| model (same preprocessing)        | CV R² (5×2)      |
-|-----------------------------------|------------------|
-| **SVR k=180, thresh=8 (final)**   | **0.5701 ± 0.033** |
-| stack (Ridge + XGB + GP) k=180    | 0.5645 ± 0.034   |
-| stack k=110                       | 0.5556 ± 0.041   |
-| SVR k=110                         | 0.5366 ± 0.043   |
-| XGBoost k=180                     | 0.5298 ± 0.036   |
-| HistGradientBoosting k=180        | 0.5094 ± 0.036   |
-| Ridge k=180                       | 0.4401 ± 0.066   |
+**Feature selection** — SelectKBest with F-test (0.5633), Spearman |ρ|
+(0.5638), mutual information (0.4663) and Lasso `SelectFromModel` (0.3288).
+F/Spearman keep the redundant-but-informative correlated features; **MI and
+Lasso top-180 lose signal** (Lasso keeps only one of each correlated group),
+so F-test k=180 is the default; alternatives one flag away
+(`--score-func spearman|mutual_info`, `--selection lasso`).
 
-Final model, full protocol (5×3): **CV R² = 0.5728 ± 0.0348**
-(per-fold scores in `experiments/cv_scores_final.csv`), comfortably above the
-public baseline of 0.5. The stack is kept one flag away
-(`python solution.py --model stack`): its out-of-fold errors correlate 0.97
-with the SVR's, so blending the two adds only ~+0.002 R² — within noise.
+**Model zoo** (k=180, thresh=8, 5×2 CV):
+
+| model                              | CV R² (5×2)      |
+|------------------------------------|------------------|
+| **vote = avg(SVR + GP + XGB)**     | **0.5747 ± 0.032** |
+| SVR (RBF, C=166.5, γ=0.00907, ε=0.03) | 0.5701 ± 0.033 |
+| stack (Ridge+XGB+GP + RidgeCV meta) | 0.5645 ± 0.034   |
+| GP alone                           | 0.5644 ± 0.033   |
+| XGBoost                            | 0.5298 ± 0.036   |
+| HistGradientBoosting               | 0.5094 ± 0.036   |
+| ExtraTrees                         | 0.5066 ± 0.033   |
+| RandomForest                       | 0.4813 ± 0.030   |
+| ElasticNetCV                       | 0.4443 ± 0.063   |
+| RidgeCV                            | 0.4401 ± 0.066   |
+| kNN (k=15, distance)               | 0.4341 ± 0.043   |
+| Huber                              | 0.3726 ± 0.055   |
+| PLS (30 components)                | 0.3706 ± 0.065   |
+
+The three ensemble members have OOF error correlations of only ~0.91–0.98
+(XGB the most complementary), so their average is the most robust choice —
+and it is still just a 3-member `VotingRegressor`.
+
+## Results
+
+Final model (vote ensemble, k=180, thresh=8), full protocol
+**RepeatedKFold(5 folds × 3 repeats, seed 42)**: **CV R² = 0.5766 ± 0.0363**
+(per-fold scores in `experiments/cv_scores_final.csv`; SVR alone scores
+0.5728 ± 0.0348 under the same protocol). Comfortably above the public
+baseline of 0.5.
+
+### Why the predicted range is narrower than y's range
+
+`y_train` spans 42–97 (mean 69.9, std 9.7) but predictions span only
+~50–88 (std ~7.5). This is **regression to the mean**, not clipping — zero
+predictions sit at the clip bounds, and out-of-fold predictions show the same
+shrinkage. Extreme ages are rare (31 subjects < 50, 18 > 90) and their MAE is
+12–19 years vs 3.4 in the 60–80 bulk, so an R²-optimal model deliberately
+shrinks toward the mean at the extremes; stretching predictions back to y's
+spread (linear calibration on OOF) gains only +0.002 R², so we don't.
 
 ## Reproducibility & robustness notes
 
@@ -108,14 +141,17 @@ with the SVR's, so blending the two adds only ~+0.002 R² — within noise.
 
 ## Draft method description (adapt in your own words for the Moodle form)
 
-> We predict brain age from the 832 perturbed MRI features with a single
-> scikit-learn pipeline evaluated by repeated 5-fold cross-validation
-> (R² = 0.57 ± 0.03 on the training set). Preprocessing, all refit inside
-> every CV fold: (1) outliers are detected per feature with a median/MAD
-> rule (8 robust sigmas) and set to NaN; (2) missing values (~7.6%) are
-> imputed with the per-feature median; (3) a quantile transform to a normal
-> distribution makes the features scale-invariant, which neutralizes the
-> block of features rescaled to ~1e6; (4) univariate F-test feature
-> selection keeps the top 180 of 832 features. The regressor is an RBF-kernel
-> SVR (C=166.5, γ=0.00907, ε=0.03) on standardized age. Predictions on the
-> test set are clipped to the observed age range [42, 97].
+> We predict brain age from the 832 perturbed MRI features with a scikit-learn
+> pipeline evaluated by repeated 5-fold cross-validation (R² = 0.577 ± 0.036
+> on the training set). Preprocessing, all refit inside every CV fold:
+> (1) outliers are detected per feature with a median/MAD rule (8 robust
+> sigmas) and set to NaN; (2) missing values (~7.6%) are imputed with the
+> per-feature median; (3) a quantile transform to a normal distribution makes
+> the features scale-invariant, which neutralizes the block of features
+> rescaled to ~1e6; (4) univariate F-test feature selection keeps the top 180
+> of 832 features (a CV sweep showed a sharp optimum at k≈180; mutual
+> information and Lasso-based selection scored lower). The regressor is the
+> average of three model families — RBF-kernel SVR (C=166.5, γ=0.00907,
+> ε=0.03), a Gaussian process with a Matérn kernel, and XGBoost — whose
+> out-of-fold errors are only ~0.9 correlated, so averaging adds diversity.
+> Predictions on the test set are clipped to the observed age range [42, 97].

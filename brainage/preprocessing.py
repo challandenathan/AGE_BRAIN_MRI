@@ -22,6 +22,8 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import QuantileTransformer
 
+from .config import RIDGE_ALPHAS
+
 
 class MADOutlierMasker(BaseEstimator, TransformerMixin):
     """Set entries more than `thresh` robust sigmas from the column median to NaN.
@@ -58,13 +60,52 @@ class MADOutlierMasker(BaseEstimator, TransformerMixin):
                        np.asarray([f"x{i}" for i in range(len(self.med_))], dtype=object))
 
 
+def _spearman_scores(X, y):
+    """|Spearman rho| of every feature with y — robust, catches monotonic
+    non-linear signal; constant columns score 0."""
+    from scipy.stats import rankdata
+    Xr = rankdata(X, axis=0)
+    xstd = Xr.std(axis=0)
+    Xz = np.divide(Xr - Xr.mean(axis=0), xstd, out=np.zeros_like(Xr), where=xstd > 0)
+    ry = rankdata(y)
+    yz = (ry - ry.mean()) / ry.std()
+    return np.abs((Xz * yz[:, None]).mean(axis=0))
+
+
 def make_score_func(name: str, seed: int):
     """Deterministic scoring function for SelectKBest."""
     if name == "f_regression":
         return f_regression
     if name == "mutual_info":
         return partial(mutual_info_regression, random_state=seed)
-    raise ValueError(f"unknown score_func {name!r} (use 'f_regression' or 'mutual_info')")
+    if name == "spearman":
+        return _spearman_scores
+    raise ValueError(f"unknown score_func {name!r} "
+                     "(use 'f_regression', 'mutual_info' or 'spearman')")
+
+
+def make_selector(cfg, k=None):
+    """The feature-selection step (subtask 2).
+
+    selection='kbest': SelectKBest with cfg.score_func, keep top-k.
+    selection='lasso': SelectFromModel(LassoCV) keeping the top-k features by
+                       |coefficient| — a multivariate, correlated-features-aware
+                       alternative to univariate ranking.
+    """
+    from sklearn.feature_selection import SelectFromModel
+    from sklearn.linear_model import LassoCV
+    k = cfg.n_features if k is None else k
+    if cfg.selection == "lasso":
+        # threshold=-inf so the max_features cap ranks ALL features by |coef|
+        # (the default threshold would keep only the nonzero ones, i.e. far
+        # fewer than k)
+        return SelectFromModel(
+            LassoCV(alphas=RIDGE_ALPHAS, cv=5, random_state=cfg.seed, max_iter=10000),
+            max_features=None if k >= 832 else int(k), threshold=-np.inf)
+    if cfg.selection != "kbest":
+        raise ValueError(f"unknown selection {cfg.selection!r} (use 'kbest' or 'lasso')")
+    k = "all" if k >= 832 else int(k)  # SelectKBest rejects k > n_features
+    return SelectKBest(make_score_func(cfg.score_func, cfg.seed), k=k)
 
 
 def make_preprocessor(cfg, k=None):
@@ -72,8 +113,6 @@ def make_preprocessor(cfg, k=None):
 
     `k` overrides cfg.n_features, which is handy for the k-sweep experiments.
     """
-    k = cfg.n_features if k is None else k
-    k = "all" if k >= 832 else int(k)  # SelectKBest rejects k > n_features
     return Pipeline([
         ("var", VarianceThreshold(0.0)),
         ("outlier", MADOutlierMasker(cfg.outlier_thresh)),
@@ -81,7 +120,7 @@ def make_preprocessor(cfg, k=None):
         ("qt", QuantileTransformer(output_distribution="normal",
                                    n_quantiles=cfg.n_quantiles,
                                    random_state=cfg.seed)),
-        ("select", SelectKBest(make_score_func(cfg.score_func, cfg.seed), k=k)),
+        ("select", make_selector(cfg, k)),
     ])
 
 
