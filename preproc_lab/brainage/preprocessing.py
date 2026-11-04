@@ -267,6 +267,82 @@ def make_imputer(cfg):
     raise ValueError(f"unknown impute {cfg.impute!r}")
 
 
+class SignedLog(_Columnwise):
+    """sign(x) * log1p(|x|) — compresses the multiplicative spikes instead of
+    deleting them (information-preserving alternative to masking)."""
+
+    def fit(self, X, y=None):
+        self._set_names(X)
+        return self
+
+    def transform(self, X):
+        X = np.asarray(X, dtype=float)
+        return np.sign(X) * np.log1p(np.abs(X))
+
+
+class SmartImputeSelector(_Columnwise):
+    """Select top-k features, then RECONSTRUCT the missing/masked cells on the
+    selected columns from the other selected features (KNN or iterative
+    imputation) instead of replacing them by the column median.
+
+    Internally: median-impute -> quantile-transform -> SelectKBest(k) ->
+    restore the original NaN mask on the selected columns -> fill with the
+    chosen imputer. Everything is fitted on the training fold only."""
+
+    def __init__(self, k=180, score_func=f_regression, method="knn", n_neighbors=10,
+                 max_iter=3, n_quantiles=500, seed=42):
+        self.k = k
+        self.score_func = score_func
+        self.method = method
+        self.n_neighbors = n_neighbors
+        self.max_iter = max_iter
+        self.n_quantiles = n_quantiles
+        self.seed = seed
+
+    def fit(self, X, y=None):
+        from sklearn.experimental import enable_iterative_imputer  # noqa: F401
+        from sklearn.impute import IterativeImputer
+        from sklearn.linear_model import BayesianRidge
+        self._set_names(X)
+        X = np.asarray(X, dtype=float)
+        self.nan_mask_ = np.isnan(X)
+        med = np.nanmedian(X, axis=0)
+        med = np.where(np.isnan(med), 0.0, med)
+        self.med_ = med
+        Xi = np.where(self.nan_mask_, med, X)
+        self.qt_ = QuantileTransformer(output_distribution="normal",
+                                       n_quantiles=self.n_quantiles,
+                                       random_state=self.seed).fit(Xi)
+        Xq = self.qt_.transform(Xi)
+        k = "all" if self.k >= Xq.shape[1] else int(self.k)
+        self.sel_ = SelectKBest(self.score_func, k=k).fit(Xq, y)
+        Xs = self.sel_.transform(Xq)
+        Xs[self.nan_mask_[:, self.sel_.get_support()]] = np.nan
+        if self.method == "knn":
+            self.filler_ = KNNImputer(n_neighbors=self.n_neighbors,
+                                      weights="distance").fit(Xs)
+        else:
+            self.filler_ = IterativeImputer(
+                estimator=BayesianRidge(), max_iter=self.max_iter,
+                random_state=self.seed, skip_complete=True).fit(Xs)
+        return self
+
+    def transform(self, X):
+        X = np.asarray(X, dtype=float)
+        mask = np.isnan(X)
+        Xi = np.where(mask, self.med_, X)
+        Xq = self.qt_.transform(Xi)
+        Xs = self.sel_.transform(Xq)
+        Xs[mask[:, self.sel_.get_support()]] = np.nan
+        out = self.filler_.transform(Xs)
+        return np.nan_to_num(out, nan=0.0)  # safety: all-NaN rows
+
+    def get_feature_names_out(self, input_features=None):
+        names = np.asarray(input_features, dtype=object) if input_features is not None \
+            else self.feature_names_in_
+        return self.sel_.get_feature_names_out(names)
+
+
 def make_preprocessor(cfg, k=None):
     """The full preprocessing chain; steps are chosen by cfg.
 
@@ -278,6 +354,13 @@ def make_preprocessor(cfg, k=None):
     out = make_outlier_step(cfg)
     if out is not None:
         steps.append(("outlier", out))
+    if cfg.smart_impute != "none":
+        # selection + info-preserving reconstruction of the deleted cells
+        steps.append(("smart", SmartImputeSelector(
+            k=cfg.n_features, score_func=make_score_func(cfg.score_func, cfg.seed),
+            method=cfg.smart_impute, n_neighbors=10, seed=cfg.seed,
+            n_quantiles=cfg.n_quantiles)))
+        return Pipeline(steps)
     if cfg.knn_impute and cfg.knn_impute > 0:
         steps.append(("qt", QuantileTransformer(output_distribution="normal",
                                                 n_quantiles=cfg.n_quantiles,
@@ -286,9 +369,14 @@ def make_preprocessor(cfg, k=None):
                                          weights="distance")))
     else:
         steps.append(("impute", make_imputer(cfg)))
-        steps.append(("qt", QuantileTransformer(output_distribution="normal",
-                                                n_quantiles=cfg.n_quantiles,
-                                                random_state=cfg.seed)))
+        if cfg.prescale == "logscale":
+            steps.append(("log", SignedLog()))
+            steps.append(("scale", __import__("sklearn.preprocessing",
+                                              fromlist=["StandardScaler"]).StandardScaler()))
+        else:
+            steps.append(("qt", QuantileTransformer(output_distribution="normal",
+                                                    n_quantiles=cfg.n_quantiles,
+                                                    random_state=cfg.seed)))
     if cfg.outlier_mode == "iforest":
         steps.append(("rows", RowNeutralizer(cfg.row_contamination, cfg.seed)))
     if cfg.selection == "corr_kbest":

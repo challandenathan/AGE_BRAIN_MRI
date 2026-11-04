@@ -59,8 +59,9 @@ VarianceThreshold(0)                       drop the 4 constant features
                                              ~1e6-scale feature block and squashes
                                              residual extremes to the boundary
 → SelectKBest(f_regression, k=180)         subtask 2: keep the top-180 features
-→ VotingRegressor[ SVR(RBF) + GP + XGB ]   subtask 3: average of three model
-                                             families (final model, see below)
+→ StackingRegressor[ SVR + GP + XGB ]      subtask 3: RidgeCV meta-learner blends
+      with RidgeCV meta-learner               the members' out-of-fold predictions
+                                             (final model, see below)
 ```
 
 ## Robustness sweeps (what we tested so no signal is lost)
@@ -119,14 +120,14 @@ predictions; results in `experiments/tuned_params.json`):
 
 The tuned values are the defaults in `brainage/config.py`.
 
-Final model (tuned vote ensemble, k=180, thresh=5), full protocol
-**RepeatedKFold(5 folds × 3 repeats, seed 42)**: **CV R² = 0.5788 ± 0.0330**
-(per-fold scores in `experiments/cv_scores_final.csv`). For reference under
-RepeatedKFold(5×2): tuned vote with thresh=5 → 0.5777 ± 0.029, thresh=8 →
-0.5764 ± 0.030, untuned vote 0.5747 ± 0.032, tuned SVR alone 0.5691 ± 0.033.
-Comfortably above the public baseline of 0.5. Note: tuning and final
-evaluation share the seed, so the headline carries the usual mild optimism of
-model selection; the untuned-vote comparison is the conservative reference.
+Final model (**stack2**: SVR + GP + XGB blended by a RidgeCV meta-learner on
+their out-of-fold predictions, k=180, thresh=5), full protocol
+**RepeatedKFold(5 folds × 3 repeats, seed 42)**: **CV R² = 0.5812 ± 0.0331**
+(per-fold scores in `experiments/cv_scores_final.csv`). Reference scores under
+the same 5×3 protocol: vote ensemble 0.5788 ± 0.0330, tuned SVR alone
+0.5728 ± 0.0281; under 5×2: stack2 0.5804, vote 0.5777. Comfortably above the
+public baseline of 0.5. Note: tuning and final evaluation share the seed, so
+the headline carries the usual mild optimism of model selection.
 
 The preprocessing alternatives (imputation / outlier / selection methods) were
 swept in **`preproc_lab/`** — see its README for the full table. Short version:
@@ -175,9 +176,10 @@ spread (linear calibration on OOF) gains only +0.002 R², so we don't.
 > the features scale-invariant, which neutralizes the block of features
 > rescaled to ~1e6; (4) univariate F-test feature selection keeps the top 180
 > of 832 features (a CV sweep showed a sharp optimum at k≈180; mutual
-> information and Lasso-based selection scored lower). The regressor is a
-> weighted average (0.3/0.4/0.3) of three model families — RBF-kernel SVR, a
-> Gaussian process with a Matérn kernel, and XGBoost — all hyperparameters
-> tuned by randomized CV search, and whose out-of-fold errors are only ~0.9
-> correlated, so averaging adds diversity. Predictions on the test set are
-> clipped to the observed age range [42, 97].
+> information, Lasso and PCA-based selection all scored lower, and
+> reconstructing the masked outlier cells from other features was worse than
+> median imputation). The regressor is a stacking ensemble: RBF-kernel SVR, a
+> Gaussian process with a Matérn kernel, and XGBoost, blended by a RidgeCV
+> meta-learner on their out-of-fold predictions — hyperparameters tuned by
+> randomized CV search, member errors only ~0.9 correlated. Predictions on the
+> test set are clipped to the observed age range [42, 97].

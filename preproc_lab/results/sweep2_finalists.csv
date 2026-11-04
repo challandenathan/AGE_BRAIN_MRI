@@ -1,0 +1,5 @@
+variant,model,mean_r2,std_r2,secs,outlier_mode,outlier_thresh,impute,selection,score_func,n_features
+FIN A0 BASE mad5/median/QT/kbestF180,vote,0.5777333794131765,0.02878500749210809,60,mad,5.0,median,kbest,f_regression,180
+FIN A1 no mask (QT squashes spikes),vote,0.5774834925630117,0.03148396516607597,59,none,inf,median,kbest,f_regression,180
+FIN B6 stack2 svr+gp+boost (RidgeCV meta),stack2,0.5803622362381147,0.030186254683918425,258,mad,5.0,median,kbest,f_regression,180
+FIN B0 vote (reference),vote,0.5777333794131765,0.02878500749210809,60,mad,5.0,median,kbest,f_regression,180

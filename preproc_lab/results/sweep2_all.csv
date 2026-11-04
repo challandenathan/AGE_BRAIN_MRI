@@ -1,0 +1,21 @@
+variant,model,mean_r2,std_r2,secs,outlier_mode,outlier_thresh,impute,selection,score_func,n_features,prescale,smart_impute
+B6 stack2 svr+gp+boost (RidgeCV meta),stack2,0.5803622362381147,0.030186254683918425,255,mad,5.0,median,kbest,f_regression,180,,
+B0 vote (reference),vote,0.5777333794131765,0.02878500749210809,59,mad,5.0,median,kbest,f_regression,180,,
+A0 BASE mad5/median/QT/kbestF180,svr,0.5724744299341935,0.027787464228867825,9,mad,5.0,median,kbest,f_regression,180,,
+A1 no mask (QT squashes spikes),svr,0.5699147167765688,0.033504613517333116,2,none,inf,median,kbest,f_regression,180,,
+"A3 signed-log scale, no QT, mad5",svr,0.5682828070300421,0.03316100478427363,1,mad,5.0,median,kbest,f_regression,180,logscale,
+"A4 signed-log scale, no QT, no mask",svr,0.5655415364653569,0.03275550162066965,1,none,inf,median,kbest,f_regression,180,logscale,
+A2 winsor8 instead of delete,svr,0.5644161099998906,0.03394724737394886,2,winsor,8.0,median,kbest,f_regression,180,,
+"A7 mad3 (aggressive delete, contrast)",svr,0.5446233532510814,0.028780889578175692,2,mad,3.0,median,kbest,f_regression,180,,
+B9 xgb (reference),xgb,0.535459896798266,0.03966193295482957,16,mad,5.0,median,kbest,f_regression,180,,
+B7 lightgbm (tuned-ish defaults),lgbm,0.5195646973385818,0.03914617313766791,15,mad,5.0,median,kbest,f_regression,180,,
+B10 histgb (reference),histgb,0.5169615353699148,0.03918640493305561,5,mad,5.0,median,kbest,f_regression,180,,
+B2 gbr (300x d3 lr.05),gbr,0.5139758854900839,0.042883355337418654,14,mad,5.0,median,kbest,f_regression,180,,
+A5 reconstruct cells: KNN k=10 on sel180,svr,0.48093271745193455,0.09745731095430739,4,mad,5.0,median,kbest,f_regression,180,,knn
+"A6 reconstruct cells: iterative (BR,3)",svr,0.4606709916183749,0.11718723757444761,30,mad,5.0,median,kbest,f_regression,180,,iter
+A8 mad5 + iter reconstruct + no QT? -> logscale+iter,svr,0.4606709916183749,0.11718723757444761,31,mad,5.0,median,kbest,f_regression,180,logscale,iter
+B4 linear SVR k=180,linsvr,0.3706832832088879,0.05188142722081108,4,mad,5.0,median,kbest,f_regression,180,,
+B5 linear SVR k=400,linsvr,0.14707164060621616,0.08470130000691613,10,mad,5.0,median,kbest,f_regression,400,,
+"B1 mlp (256,128,64)",mlp,-0.666844959597068,0.39007821817114524,7,mad,5.0,median,kbest,f_regression,180,,
+B3 kernel ridge rbf,kridge,-1.9530203527470698,0.5677889501687555,2,mad,5.0,median,kbest,f_regression,180,,
+B8 ngboost Normal 500,ngboost,,,61,mad,5.0,median,kbest,f_regression,180,,

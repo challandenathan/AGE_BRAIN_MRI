@@ -164,11 +164,33 @@ def make_vote(cfg):
     ], weights=list(cfg.vote_weights), n_jobs=-1)
 
 
+def make_stack2(cfg):
+    """Stacking (RidgeCV meta-learner on the members' out-of-fold predictions)
+    over SVR + GP + boosted trees. Won the preproc_lab model sweep:
+    0.5804 (5x2) / 0.5812 (5x3) vs vote 0.5777 / 0.5788."""
+    svr = Pipeline([("pre", clone(make_preprocessor(cfg))),
+                    ("model", make_svr(cfg).named_steps["model"])])
+    boost = Pipeline([("pre", clone(make_preprocessor(cfg))),
+                      ("model", _boost_regressor(cfg))])
+    gp = Pipeline([("pre", clone(make_preprocessor(cfg))),
+                   ("model", GaussianProcessRegressor(
+                       kernel=_gp_kernel(), normalize_y=True, alpha=cfg.gp_alpha,
+                       n_restarts_optimizer=cfg.gp_n_restarts,
+                       random_state=cfg.seed))])
+    return StackingRegressor(
+        estimators=[("svr", svr), ("boost", boost), ("gp", gp)],
+        final_estimator=RidgeCV(alphas=RIDGE_ALPHAS),
+        cv=cfg.inner_cv(),
+        n_jobs=-1,
+    )
+
+
 MODELS = {
     "ridge": make_ridge,
     "histgb": make_histgb,
     "svr": make_svr,
     "stack": make_stack,
+    "stack2": make_stack2,
     "vote": make_vote,
     "gp": make_gp,
     "knn": make_knn,

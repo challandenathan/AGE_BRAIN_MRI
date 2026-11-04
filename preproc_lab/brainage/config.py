@@ -29,8 +29,11 @@ class Config:
     # --- preprocessing ---
     impute: str = "median"          # median | mean | zero
     add_indicator: bool = False     # add missing-value indicator columns
-    knn_impute: int = 0             # if >0: KNNImputer(n_neighbors=...) after selection
+    knn_impute: int = 0             # if >0: KNNImputer(n_neighbors=...) after QT, before selection
     n_quantiles: int = 500          # QuantileTransformer resolution
+    prescale: str = "qt"            # "qt" (rank->normal) | "logscale" (signed log + standard)
+    smart_impute: str = "none"      # "none" | "knn" | "iter": reconstruct masked/NaN cells
+                                    # on the k selected features (info-preserving)
 
     # --- subtask 2: feature selection ---
     selection: str = "kbest"        # kbest | lasso | tree | pca | corr_kbest

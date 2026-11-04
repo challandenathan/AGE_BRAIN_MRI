@@ -164,11 +164,54 @@ def make_vote(cfg):
     ], weights=list(cfg.vote_weights), n_jobs=-1)
 
 
+def make_mlp(cfg):
+    from sklearn.neural_network import MLPRegressor
+    return _with_pre(cfg, MLPRegressor(
+        hidden_layer_sizes=(256, 128, 64), activation="relu",
+        early_stopping=True, validation_fraction=0.15, n_iter_no_change=20,
+        max_iter=500, random_state=cfg.seed))
+
+
+def make_gbr(cfg):
+    from sklearn.ensemble import GradientBoostingRegressor
+    return _with_pre(cfg, GradientBoostingRegressor(
+        n_estimators=300, max_depth=3, learning_rate=0.05,
+        subsample=0.8, random_state=cfg.seed))
+
+
+def make_kridge(cfg):
+    from sklearn.kernel_ridge import KernelRidge
+    return _with_pre(cfg, KernelRidge(kernel="rbf", alpha=1.0, gamma=cfg.svr_gamma))
+
+
+def make_linsvr(cfg):
+    from sklearn.svm import LinearSVR
+    return _with_pre(cfg, TransformedTargetRegressor(
+        LinearSVR(C=1.0, epsilon=cfg.svr_epsilon, max_iter=5000, random_state=cfg.seed),
+        transformer=StandardScaler()))
+
+
+def make_stack2(cfg):
+    """Stacking (RidgeCV meta on OOF preds) over SVR + GP + boost — the stacking
+    counterpart of `vote`."""
+    svr = Pipeline([("pre", clone(make_preprocessor(cfg))), ("model", make_svr(cfg).named_steps["model"])])
+    boost = Pipeline([("pre", clone(make_preprocessor(cfg))),
+                      ("model", _boost_regressor(cfg))])
+    gp = Pipeline([("pre", clone(make_preprocessor(cfg))),
+                   ("model", GaussianProcessRegressor(
+                       kernel=_gp_kernel(), normalize_y=True, alpha=cfg.gp_alpha,
+                       n_restarts_optimizer=cfg.gp_n_restarts, random_state=cfg.seed))])
+    return StackingRegressor(
+        estimators=[("svr", svr), ("boost", boost), ("gp", gp)],
+        final_estimator=RidgeCV(alphas=RIDGE_ALPHAS), cv=cfg.inner_cv(), n_jobs=-1)
+
+
 MODELS = {
     "ridge": make_ridge,
     "histgb": make_histgb,
     "svr": make_svr,
     "stack": make_stack,
+    "stack2": make_stack2,
     "vote": make_vote,
     "gp": make_gp,
     "knn": make_knn,
@@ -177,9 +220,35 @@ MODELS = {
     "elasticnet": make_elasticnet,
     "huber": make_huber,
     "pls": make_pls,
+    "mlp": make_mlp,
+    "gbr": make_gbr,
+    "kridge": make_kridge,
+    "linsvr": make_linsvr,
 }
 if HAS_XGB:
     MODELS["xgb"] = make_xgb
+try:
+    from lightgbm import LGBMRegressor
+    def make_lgbm(cfg):
+        return _with_pre(cfg, LGBMRegressor(
+            n_estimators=800, max_depth=4, learning_rate=0.02, subsample=0.7,
+            colsample_bytree=0.6, reg_lambda=3.0, random_state=cfg.seed,
+            n_jobs=-1, verbose=-1))
+    MODELS["lgbm"] = make_lgbm
+    HAS_LGBM = True
+except Exception:
+    HAS_LGBM = False
+try:
+    from ngboost import NGBRegressor
+    from ngboost.distns import Normal
+    def make_ngboost(cfg):
+        return _with_pre(cfg, NGBRegressor(
+            Dist=Normal, n_estimators=500, learning_rate=0.05,
+            random_state=cfg.seed, verbose=False))
+    MODELS["ngboost"] = make_ngboost
+    HAS_NGB = True
+except Exception:
+    HAS_NGB = False
 
 
 def build_model(name: str, cfg):

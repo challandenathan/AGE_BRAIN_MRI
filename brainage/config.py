@@ -39,8 +39,10 @@ class Config:
     n_repeats: int = 3              # RepeatedKFold(5 folds x 3 repeats)
 
     # --- subtask 3: regression ---
-    model: str = "vote"             # key of models.MODELS; "vote" = weighted avg of
-                                    # SVR + GP + boosted trees (best repeated-CV score)
+    model: str = "stack2"           # key of models.MODELS; "stack2" = SVR + GP + boost
+                                    # blended by a RidgeCV meta-learner on their OOF
+                                    # predictions (best in the preproc_lab sweeps:
+                                    # 0.5812 5x3 vs vote 0.5788, svr 0.5728)
     # Tuned by `python solution.py --tune` (RandomizedSearchCV, KFold(5, seed 42),
     # whole pipeline refit per fold) — see experiments/tuned_params.json
     svr_C: float = 80.03

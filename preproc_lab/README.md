@@ -85,3 +85,47 @@ Run: `python preproc_lab/run_sweeps.py` → `results/preproc_sweep.csv`,
 
 Net: the current main pipeline is already near the practical optimum for this
 data; the only adopted change is MAD thresh 8 → 5.
+
+## Sweep #2 — does masking delete important data? + new models
+
+`run_sweeps2.py` → `results/sweep2_all.csv`, `results/sweep2_finalists.csv`.
+Same protocol (tuned model fixed, RepeatedKFold 5×2; finalists re-scored with
+the tuned vote).
+
+**A. Info-preserving outlier handling** (tuned SVR):
+
+| variant | CV R² |
+|---|---|
+| **BASE: MAD thresh=5 + median impute + QT (current)** | **0.5725 ± 0.028** |
+| no masking at all (QT squashes spikes) | 0.5699 |
+| signed-log scaling instead of QT + MAD5 | 0.5683 |
+| signed-log, no mask | 0.5655 |
+| winsorize at 8σ instead of delete | 0.5644 |
+| MAD thresh=3 (more aggressive deleting) | 0.5446 |
+| reconstruct masked cells with KNN k=10 on the selected 180 | 0.4809 |
+| reconstruct masked cells with iterative (BayesianRidge) | 0.4607 |
+
+Conclusion: **we are not deleting important data.** The masked cells are
+genuine corruption — reconstructing them from the other features is much
+*worse* than the median fill, and simply keeping the spikes (no mask) is also
+slightly worse. MAD-5 + QT is the best of all worlds. With the vote ensemble:
+BASE 0.5777 vs no-mask 0.5775 — a tie.
+
+**B. New models** on the base preprocessing (5×2):
+
+| model | CV R² |
+|---|---|
+| **stack2: SVR+GP+boost, RidgeCV meta-learner on OOF preds** | **0.5804 ± 0.030** |
+| vote: avg(SVR+GP+XGB) (reference) | 0.5777 ± 0.029 |
+| XGBoost | 0.5355 |
+| LightGBM | 0.5196 |
+| HistGradientBoosting | 0.5170 |
+| GradientBoosting | 0.5140 |
+| LinearSVR k=180 / k=400 | 0.371 / 0.147 |
+| MLP (256,128,64) | −0.67 (overfits) |
+| KernelRidge RBF | −1.95 (bad gamma) |
+| NGBoost | NaN (numerically unstable here) |
+
+The stacking meta-learner (RidgeCV on the members' out-of-fold predictions)
+beats the fixed 0.3/0.4/0.3 average: **0.5804 vs 0.5777**. Verified under the
+full 5×3 protocol before adoption (see git history / main README).

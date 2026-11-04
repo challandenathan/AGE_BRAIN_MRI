@@ -13,8 +13,8 @@ Entry point of the project. Reproduces the submission end-to-end:
 Pipeline (all steps fitted inside every CV fold, so evaluation is leak-free):
     VarianceThreshold -> MADOutlierMasker -> SimpleImputer(median)
     -> QuantileTransformer(normal) -> SelectKBest(f_regression, k)
-    -> regressor (by default the average of SVR + GP + XGBoost; see
-       --model for the alternatives: svr, stack, xgb, histgb, knn, ...)
+    -> regressor (by default stack2: SVR + GP + XGBoost blended by a RidgeCV
+       meta-learner; see --model for the alternatives: vote, svr, stack, ...)
 
 Metric: R^2 via RepeatedKFold(5 x 3, seed 42). Predictions on X_test are
 clipped to the observed age range and written in the sample.csv format.

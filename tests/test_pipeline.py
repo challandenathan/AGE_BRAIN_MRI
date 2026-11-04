@@ -102,7 +102,7 @@ class TestPipeline(unittest.TestCase):
                 self.assertTrue(np.isfinite(out).all())
 
     def test_each_model_fits_and_predicts(self):
-        for name in ["ridge", "xgb", "histgb", "svr"]:
+        for name in ["ridge", "xgb", "histgb", "svr", "vote", "stack2"]:
             with self.subTest(model=name):
                 m = build_model(name, self.cfg)
                 m.fit(self.X, self.y)
