@@ -97,7 +97,7 @@ def _gp_kernel():
 
 def make_gp(cfg):
     return _with_pre(cfg, GaussianProcessRegressor(
-        kernel=_gp_kernel(), normalize_y=True, alpha=1e-8,
+        kernel=_gp_kernel(), normalize_y=True, alpha=cfg.gp_alpha,
         n_restarts_optimizer=cfg.gp_n_restarts, random_state=cfg.seed))
 
 
@@ -142,7 +142,7 @@ def make_stack(cfg):
                       ("model", _boost_regressor(cfg))])
     gp = Pipeline([("pre", clone(make_preprocessor(cfg))),
                    ("model", GaussianProcessRegressor(
-                       kernel=_gp_kernel(), normalize_y=True, alpha=1e-8,
+                       kernel=_gp_kernel(), normalize_y=True, alpha=cfg.gp_alpha,
                        n_restarts_optimizer=cfg.gp_n_restarts,
                        random_state=cfg.seed))])
     return StackingRegressor(
@@ -154,13 +154,14 @@ def make_stack(cfg):
 
 
 def make_vote(cfg):
-    """Simple average of SVR + GP + boosted trees — three model families whose
-    errors are only ~0.9 correlated, so averaging buys diversity."""
+    """Weighted average of SVR + GP + boosted trees — three model families
+    whose errors are only ~0.9 correlated, so averaging buys diversity.
+    Weights default to uniform; brainage.tuning picks them on OOF predictions."""
     return VotingRegressor([
         ("svr", make_svr(cfg)),
         ("gp", make_gp(cfg)),
         ("boost", _with_pre(cfg, _boost_regressor(cfg))),
-    ], n_jobs=-1)
+    ], weights=list(cfg.vote_weights), n_jobs=-1)
 
 
 MODELS = {

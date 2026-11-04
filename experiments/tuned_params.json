@@ -1,0 +1,41 @@
+{
+  "seed": 42,
+  "members": {
+    "svr": {
+      "best_cv_r2": 0.5621995545755685,
+      "best_params": {
+        "model__regressor__C": 80.02615008509747,
+        "model__regressor__epsilon": 0.01,
+        "model__regressor__gamma": 0.010402587615883844,
+        "pre__select__k": 180
+      }
+    },
+    "xgb": {
+      "best_cv_r2": 0.5469917757558767,
+      "best_params": {
+        "pre__select__k": 150,
+        "model__subsample": 0.7,
+        "model__reg_lambda": 3.0,
+        "model__n_estimators": 800,
+        "model__max_depth": 4,
+        "model__learning_rate": 0.02,
+        "model__colsample_bytree": 0.6
+      }
+    },
+    "gp": {
+      "best_cv_r2": 0.5635260734174097,
+      "best_params": {
+        "pre__select__k": 180,
+        "model__alpha": 1e-10
+      }
+    }
+  },
+  "vote_weights": {
+    "weights": {
+      "svr": 0.3,
+      "gp": 0.4,
+      "boost": 0.3
+    },
+    "oof_r2": 0.5777926450734583
+  }
+}

@@ -13,6 +13,7 @@ pip install -r requirements.txt
 python solution.py               # CV-evaluate, fit on all data, write submission.csv
 python solution.py --no-submit   # CV evaluation only
 python solution.py --compare     # benchmark all candidate models -> experiments/cv_results.csv
+python solution.py --tune        # tune the vote members + weights -> experiments/tuned_params.json
 python solution.py --model svr   # any model from brainage.models.MODELS
 python -m unittest discover -s tests   # test suite (stdlib unittest, no extra deps)
 ```
@@ -103,11 +104,27 @@ and it is still just a 3-member `VotingRegressor`.
 
 ## Results
 
-Final model (vote ensemble, k=180, thresh=8), full protocol
-**RepeatedKFold(5 folds × 3 repeats, seed 42)**: **CV R² = 0.5766 ± 0.0363**
-(per-fold scores in `experiments/cv_scores_final.csv`; SVR alone scores
-0.5728 ± 0.0348 under the same protocol). Comfortably above the public
-baseline of 0.5.
+**Fine-tuning** (`python solution.py --tune`, RandomizedSearchCV over each vote
+member's *full pipeline* under KFold(5, seed 42), then vote weights on OOF
+predictions; results in `experiments/tuned_params.json`):
+
+| member | best params (abbreviated) | member CV R² (5-fold) |
+|---|---|---|
+| SVR | C=80.0, γ=0.0104, ε=0.01, k=180 | 0.5622 |
+| XGBoost | 800 trees, depth 4, lr 0.02, subsample 0.7, colsample 0.6, λ=3.0 | 0.5470 |
+| GP | jitter α=1e-10, k=180 (kernel bounds self-optimize at fit) | 0.5635 |
+| vote weights | (svr, gp, boost) = **(0.3, 0.4, 0.3)** | OOF 0.5778 |
+
+The tuned values are the defaults in `brainage/config.py`.
+
+Final model (tuned vote ensemble, k=180, thresh=8), full protocol
+**RepeatedKFold(5 folds × 3 repeats, seed 42)**: **CV R² = 0.5794 ± 0.0349**
+(per-fold scores in `experiments/cv_scores_final.csv`). For reference under
+RepeatedKFold(5×2): tuned vote 0.5764 ± 0.030, untuned vote 0.5747 ± 0.032,
+tuned SVR alone 0.5691 ± 0.033. Comfortably above the public baseline of 0.5.
+Note: tuning and final evaluation share the seed, so the 0.5794 carries the
+usual mild optimism of model selection; the untuned-vote comparison above is
+the conservative reference.
 
 ### Why the predicted range is narrower than y's range
 
@@ -142,7 +159,7 @@ spread (linear calibration on OOF) gains only +0.002 R², so we don't.
 ## Draft method description (adapt in your own words for the Moodle form)
 
 > We predict brain age from the 832 perturbed MRI features with a scikit-learn
-> pipeline evaluated by repeated 5-fold cross-validation (R² = 0.577 ± 0.036
+> pipeline evaluated by repeated 5-fold cross-validation (R² = 0.579 ± 0.035
 > on the training set). Preprocessing, all refit inside every CV fold:
 > (1) outliers are detected per feature with a median/MAD rule (8 robust
 > sigmas) and set to NaN; (2) missing values (~7.6%) are imputed with the
@@ -150,8 +167,9 @@ spread (linear calibration on OOF) gains only +0.002 R², so we don't.
 > the features scale-invariant, which neutralizes the block of features
 > rescaled to ~1e6; (4) univariate F-test feature selection keeps the top 180
 > of 832 features (a CV sweep showed a sharp optimum at k≈180; mutual
-> information and Lasso-based selection scored lower). The regressor is the
-> average of three model families — RBF-kernel SVR (C=166.5, γ=0.00907,
-> ε=0.03), a Gaussian process with a Matérn kernel, and XGBoost — whose
-> out-of-fold errors are only ~0.9 correlated, so averaging adds diversity.
-> Predictions on the test set are clipped to the observed age range [42, 97].
+> information and Lasso-based selection scored lower). The regressor is a
+> weighted average (0.3/0.4/0.3) of three model families — RBF-kernel SVR, a
+> Gaussian process with a Matérn kernel, and XGBoost — all hyperparameters
+> tuned by randomized CV search, and whose out-of-fold errors are only ~0.9
+> correlated, so averaging adds diversity. Predictions on the test set are
+> clipped to the observed age range [42, 97].

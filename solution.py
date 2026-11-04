@@ -36,6 +36,9 @@ def parse_args():
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--compare", action="store_true",
                    help="benchmark all models in brainage.models.MODELS instead of submitting")
+    p.add_argument("--tune", action="store_true",
+                   help="tune the vote members (SVR/XGB/GP) + vote weights with "
+                        "RandomizedSearchCV under CV; writes experiments/tuned_params.json")
     p.add_argument("--no-submit", action="store_true", help="only run CV, do not write submission.csv")
     p.add_argument("--model", default=None, choices=sorted(MODELS),
                    help="regressor to use (default: cfg.model)")
@@ -73,6 +76,18 @@ def main():
     data = load_data(cfg)
     print(f"X_train {data.X.shape}, y {data.y.shape} "
           f"(range {data.y.min():.0f}-{data.y.max():.0f}), X_test {data.X_test.shape}")
+
+    if args.tune:
+        import json
+        from brainage.tuning import tune_all
+        cfg.results_dir.mkdir(exist_ok=True)
+        print(f"tuning vote members under KFold({cfg.n_splits}, seed {cfg.seed}) ...")
+        result = tune_all(data.X, data.y, cfg)
+        path = cfg.results_dir / "tuned_params.json"
+        path.write_text(json.dumps(result, indent=2))
+        print(f"\nwrote {path}")
+        print(json.dumps(result, indent=2))
+        return
 
     if args.compare:
         cfg.results_dir.mkdir(exist_ok=True)

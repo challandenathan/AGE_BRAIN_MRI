@@ -115,6 +115,19 @@ class TestPipeline(unittest.TestCase):
         self.assertEqual(len(scores), self.cfg.n_splits * self.cfg.n_repeats)
         self.assertTrue(np.isfinite(scores).all())
 
+    def test_tune_member_smoke(self):
+        from brainage.tuning import tune_member, apply_best_params
+        cfg = small_cfg()
+        cfg.n_splits = 3
+        search = tune_member("svr", self.X, self.y, cfg, n_iter=2)
+        self.assertTrue(np.isfinite(search.best_score_))
+        apply_best_params("svr", cfg, search.best_params_)
+        self.assertGreater(cfg.svr_C, 0)
+        # the tuned pipeline still fits and predicts
+        m = build_model("svr", cfg)
+        m.fit(self.X, self.y)
+        self.assertEqual(m.predict(self.X_test).shape, (50,))
+
 
 class TestDataAndSubmission(unittest.TestCase):
     def test_load_data_validates(self):

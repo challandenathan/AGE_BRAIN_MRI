@@ -37,19 +37,22 @@ class Config:
     n_repeats: int = 3              # RepeatedKFold(5 folds x 3 repeats)
 
     # --- subtask 3: regression ---
-    model: str = "vote"             # key of models.MODELS; "vote" = average of
-                                    # SVR + GP + boosted trees (best repeated-CV
-                                    # score; "svr" alone is within noise of it)
-    svr_C: float = 166.5            # tuned by RandomizedSearchCV (see README)
-    svr_gamma: float = 0.00907
-    svr_epsilon: float = 0.03
+    model: str = "vote"             # key of models.MODELS; "vote" = weighted avg of
+                                    # SVR + GP + boosted trees (best repeated-CV score)
+    # Tuned by `python solution.py --tune` (RandomizedSearchCV, KFold(5, seed 42),
+    # whole pipeline refit per fold) — see experiments/tuned_params.json
+    svr_C: float = 80.03
+    svr_gamma: float = 0.010403
+    svr_epsilon: float = 0.01
 
     xgb: dict = field(default_factory=lambda: dict(
-        n_estimators=400, max_depth=3, learning_rate=0.05,
-        subsample=0.8, colsample_bytree=0.8, reg_lambda=1.0,
+        n_estimators=800, max_depth=4, learning_rate=0.02,
+        subsample=0.7, colsample_bytree=0.6, reg_lambda=3.0,
         random_state=42, n_jobs=-1,
     ))
     gp_n_restarts: int = 2
+    gp_alpha: float = 1e-10         # jitter on the GP kernel diagonal (tuned)
+    vote_weights: tuple = (0.3, 0.4, 0.3)   # (svr, gp, boost), tuned on OOF preds
 
     # --- paths (derived) ---
     @property
