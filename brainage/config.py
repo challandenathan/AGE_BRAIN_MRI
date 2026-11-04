@@ -22,7 +22,9 @@ class Config:
     seed: int = 42
 
     # --- subtask 1: outlier detection ---
-    outlier_thresh: float = 8.0     # robust sigmas; np.inf disables masking
+    outlier_thresh: float = 5.0     # robust sigmas (5 chosen by the preproc_lab sweep:
+                                    # best mean and lowest std in both SVR and vote
+                                    # protocols; np.inf disables masking)
 
     # --- preprocessing ---
     n_quantiles: int = 500          # QuantileTransformer resolution

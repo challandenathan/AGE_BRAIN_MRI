@@ -1,0 +1,4 @@
+variant,model,mean_r2,std_r2,secs,outlier_mode,outlier_thresh,impute,selection,score_func,n_features
+FINALIST outlier mad th=5.0,vote,0.5777333794131765,0.02878500749210809,57,mad,5.0,median,kbest,f_regression,180
+FINALIST select kbest spearman 180,vote,0.5774550844943906,0.02947743322353557,56,mad,8.0,median,kbest,spearman,180
+FINALIST outlier iqr th=8.0,vote,0.5767711460684982,0.031279559064820446,57,iqr,8.0,median,kbest,f_regression,180
