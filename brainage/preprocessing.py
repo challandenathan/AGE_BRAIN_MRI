@@ -72,6 +72,63 @@ def _spearman_scores(X, y):
     return np.abs((Xz * yz[:, None]).mean(axis=0))
 
 
+class AdaptiveMADMasker(BaseEstimator, TransformerMixin):
+    """Per-feature MAD masking with a distribution-aware threshold: features
+    that are right-skewed or heavy-tailed (where large values are legitimate)
+    get a looser high-side threshold; light-tailed features get the base one.
+    Low side always uses the base threshold. Fitted on the training fold only."""
+
+    def __init__(self, base=5.0, skew_bonus=1.5, skew_cut=1.0, kurt_cut=10.0, kurt_bonus=3.0):
+        self.base = base
+        self.skew_bonus = skew_bonus
+        self.skew_cut = skew_cut
+        self.kurt_cut = kurt_cut
+        self.kurt_bonus = kurt_bonus
+
+    def fit(self, X, y=None):
+        if hasattr(X, "columns"):
+            self.feature_names_in_ = np.asarray(X.columns, dtype=object)
+        X = np.asarray(X, dtype=float)
+        self.med_ = np.nanmedian(X, axis=0)
+        mad = np.nanmedian(np.abs(X - self.med_), axis=0)
+        q1, q3 = np.nanpercentile(X, [25, 75], axis=0)
+        scale = np.where(mad > 0, mad / 0.6745, (q3 - q1) / 1.349)
+        self.scale_ = np.where(scale > 0, scale, np.inf)
+        Xc = np.where(np.isnan(X), self.med_, X)
+        mu = Xc.mean(axis=0)
+        sd = Xc.std(axis=0)
+        sd = np.where(sd > 0, sd, 1.0)
+        m3 = ((Xc - mu) ** 3).mean(axis=0) / sd**3
+        m4 = ((Xc - mu) ** 4).mean(axis=0) / sd**4 - 3.0
+        hi = np.full(X.shape[1], self.base)
+        hi = np.where((m3 > self.skew_cut) | (m4 > self.kurt_cut), hi + self.kurt_bonus, hi)
+        self.thresh_hi_ = np.where(m3 > self.skew_cut, hi * self.skew_bonus, hi)
+        self.thresh_lo_ = np.full(X.shape[1], self.base)
+        return self
+
+    def transform(self, X):
+        X = np.array(X, dtype=float)
+        z = (X - self.med_) / self.scale_
+        X[(z > self.thresh_hi_) | (z < -self.thresh_lo_)] = np.nan
+        return X
+
+    def get_feature_names_out(self, input_features=None):
+        if input_features is not None:
+            return np.asarray(input_features, dtype=object)
+        return getattr(self, "feature_names_in_",
+                       np.asarray([f"x{i}" for i in range(len(self.med_))], dtype=object))
+
+
+def make_outlier_step(cfg):
+    if cfg.outlier_thresh == np.inf:
+        return None
+    if cfg.outlier_mode == "adakurt":
+        return AdaptiveMADMasker(cfg.outlier_thresh)
+    if cfg.outlier_mode == "mad":
+        return MADOutlierMasker(cfg.outlier_thresh)
+    raise ValueError(f"unknown outlier_mode {cfg.outlier_mode!r}")
+
+
 def make_score_func(name: str, seed: int):
     """Deterministic scoring function for SelectKBest."""
     if name == "f_regression":
@@ -113,15 +170,18 @@ def make_preprocessor(cfg, k=None):
 
     `k` overrides cfg.n_features, which is handy for the k-sweep experiments.
     """
-    return Pipeline([
-        ("var", VarianceThreshold(0.0)),
-        ("outlier", MADOutlierMasker(cfg.outlier_thresh)),
+    outlier = make_outlier_step(cfg)
+    steps = [("var", VarianceThreshold(0.0))]
+    if outlier is not None:
+        steps.append(("outlier", outlier))
+    steps += [
         ("impute", SimpleImputer(strategy="median", keep_empty_features=True)),
         ("qt", QuantileTransformer(output_distribution="normal",
                                    n_quantiles=cfg.n_quantiles,
                                    random_state=cfg.seed)),
         ("select", make_selector(cfg, k)),
-    ])
+    ]
+    return Pipeline(steps)
 
 
 def selected_feature_names(cfg, X, y):

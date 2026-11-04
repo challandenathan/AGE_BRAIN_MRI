@@ -1,0 +1,18 @@
+variant,model,mean_r2,std_r2
+C6 adaptive kurt/skew MAD,svr,0.5772,0.0296
+D6 kbest spearman 180,svr,0.5743,0.0289
+C5 tukey fence k=3,svr,0.5738,0.0309
+D3 stability selection freq=0.5,svr,0.5726,0.0274
+D0 kbest F 180 (BASE),svr,0.5725,0.0278
+C0 BASE mad5,svr,0.5725,0.0278
+C2 spike ratio=2,svr,0.5661,0.0314
+C3 spike ratio=4,svr,0.5659,0.0313
+C8 winsor at empirical q99.9,svr,0.5656,0.0336
+"C1 spike: z>5 AND x>3*med, |z|>12",svr,0.5651,0.0314
+C4 ratio-only x>4*med,svr,0.5644,0.0329
+C7 winsor at empirical q99.5,svr,0.559,0.0326
+C9 LOF rows cont=0.02,svr,0.5361,0.0407
+D4 cluster-diverse corr0.8,svr,0.5164,0.0341
+D1 boruta shadow ET,svr,0.4724,0.0827
+D2 ridge-coef top180,svr,0.4124,0.0332
+D5 RFECV ridge min50,svr,0.3803,0.0633

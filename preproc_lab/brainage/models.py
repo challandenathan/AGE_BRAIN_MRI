@@ -206,6 +206,74 @@ def make_stack2(cfg):
         final_estimator=RidgeCV(alphas=RIDGE_ALPHAS), cv=cfg.inner_cv(), n_jobs=-1)
 
 
+def make_ard(cfg):
+    """ARDRegression — Bayesian linear model with automatic relevance
+    determination (its own built-in feature weighting)."""
+    from sklearn.linear_model import ARDRegression
+    return _with_pre(cfg, ARDRegression(max_iter=300))
+
+
+def make_omp(cfg):
+    """Orthogonal matching pursuit — sparse linear model, 50 non-zero coefs."""
+    from sklearn.linear_model import OrthogonalMatchingPursuit
+    return _with_pre(cfg, OrthogonalMatchingPursuit(n_nonzero_coefs=50))
+
+
+def make_qreg(cfg):
+    """Median (L1) regression — robust to residual outliers by construction."""
+    from sklearn.linear_model import QuantileRegressor
+    return _with_pre(cfg, QuantileRegressor(quantile=0.5, alpha=0.5, solver="highs"))
+
+
+def make_ransac(cfg):
+    """RANSAC linear regression — fits on inlier subsets only."""
+    from sklearn.linear_model import LinearRegression, RANSACRegressor
+    return _with_pre(cfg, RANSACRegressor(LinearRegression(), min_samples=0.6,
+                                          max_trials=100, random_state=cfg.seed))
+
+
+def make_monoxgb(cfg):
+    """XGBoost with monotonic constraints = sign of each feature's Spearman rho
+    with y, computed on the training fold only (leak-free): age should move
+    monotonically with each informative feature."""
+    from scipy.stats import spearmanr
+    from sklearn.base import BaseEstimator, RegressorMixin
+
+    class _MonoXGB(BaseEstimator, RegressorMixin):
+        def __init__(self, params, rho_cut=0.05):
+            self.params = params
+            self.rho_cut = rho_cut
+
+        def fit(self, X, y):
+            X = np.asarray(X, dtype=float)
+            rho = np.array([spearmanr(X[:, j], y).statistic for j in range(X.shape[1])])
+            cons = np.where(np.abs(rho) >= self.rho_cut, np.sign(rho), 0).astype(int)
+            self.model_ = XGBRegressor(**{**self.params, "monotonic_constraints": tuple(cons)})
+            self.model_.fit(X, y)
+            return self
+
+        def predict(self, X):
+            return self.model_.predict(np.asarray(X, dtype=float))
+
+    return _with_pre(cfg, _MonoXGB(dict(cfg.xgb)))
+
+
+def make_stack3(cfg):
+    """stack2 + an ExtraTrees member (4 diverse base learners)."""
+    svr = Pipeline([("pre", clone(make_preprocessor(cfg))),
+                    ("model", make_svr(cfg).named_steps["model"])])
+    boost = Pipeline([("pre", clone(make_preprocessor(cfg))),
+                      ("model", _boost_regressor(cfg))])
+    gp = Pipeline([("pre", clone(make_preprocessor(cfg))),
+                   ("model", GaussianProcessRegressor(
+                       kernel=_gp_kernel(), normalize_y=True, alpha=cfg.gp_alpha,
+                       n_restarts_optimizer=cfg.gp_n_restarts, random_state=cfg.seed))])
+    et = Pipeline([("pre", clone(make_preprocessor(cfg))), ("model", make_et(cfg).named_steps["model"])])
+    return StackingRegressor(
+        estimators=[("svr", svr), ("boost", boost), ("gp", gp), ("et", et)],
+        final_estimator=RidgeCV(alphas=RIDGE_ALPHAS), cv=cfg.inner_cv(), n_jobs=-1)
+
+
 MODELS = {
     "ridge": make_ridge,
     "histgb": make_histgb,
@@ -224,7 +292,23 @@ MODELS = {
     "gbr": make_gbr,
     "kridge": make_kridge,
     "linsvr": make_linsvr,
+    "stack3": make_stack3,
+    "ard": make_ard,
+    "omp": make_omp,
+    "qreg": make_qreg,
+    "ransac": make_ransac,
+    "monoxgb": make_monoxgb,
 }
+try:
+    from catboost import CatBoostRegressor
+    def make_catboost(cfg):
+        return _with_pre(cfg, CatBoostRegressor(
+            iterations=800, depth=4, learning_rate=0.02, subsample=0.7,
+            colsample_bylevel=0.6, l2_leaf_reg=3.0, random_seed=cfg.seed,
+            verbose=0))
+    MODELS["catboost"] = make_catboost
+except Exception:
+    pass
 if HAS_XGB:
     MODELS["xgb"] = make_xgb
 try:

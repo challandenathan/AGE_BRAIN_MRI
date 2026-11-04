@@ -46,13 +46,13 @@ fold re-estimates all statistics on its training part only (no leakage):
 
 ```
 VarianceThreshold(0)                       drop the 4 constant features
-→ MADOutlierMasker(thresh=5)               subtask 1: entries > 5 robust sigmas
-                                             (median/MAD) from the column median
-                                             are set to NaN — catches the 4–17x
-                                             spikes and 1e23 values without being
-                                             distorted by them (thresh 5 chosen by
-                                             the preproc_lab sweep: best mean and
-                                             lowest std in every protocol)
+→ AdaptiveMADMasker(base=5)                subtask 1: entries beyond a per-feature
+                                             robust-sigma threshold (median/MAD) are
+                                             set to NaN — skewed/heavy-tailed features
+                                             get a looser high-side threshold, so only
+                                             true spikes (4–17x median, 1e23 values)
+                                             are masked, legitimate tails are kept
+                                             (best outlier rule in preproc_lab sweep #3)
 → SimpleImputer(strategy="median")         subtask 0: fill NaNs (original ~7.6%
                                              + masked outliers) per feature
 → QuantileTransformer(output="normal")     rank → normal map; neutralizes the
@@ -121,13 +121,14 @@ predictions; results in `experiments/tuned_params.json`):
 The tuned values are the defaults in `brainage/config.py`.
 
 Final model (**stack2**: SVR + GP + XGB blended by a RidgeCV meta-learner on
-their out-of-fold predictions, k=180, thresh=5), full protocol
-**RepeatedKFold(5 folds × 3 repeats, seed 42)**: **CV R² = 0.5812 ± 0.0331**
+their out-of-fold predictions, k=180, adaptive MAD base=5), full protocol
+**RepeatedKFold(5 folds × 3 repeats, seed 42)**: **CV R² = 0.5847 ± 0.0341**
 (per-fold scores in `experiments/cv_scores_final.csv`). Reference scores under
-the same 5×3 protocol: vote ensemble 0.5788 ± 0.0330, tuned SVR alone
-0.5728 ± 0.0281; under 5×2: stack2 0.5804, vote 0.5777. Comfortably above the
-public baseline of 0.5. Note: tuning and final evaluation share the seed, so
-the headline carries the usual mild optimism of model selection.
+the same 5×3 protocol: adaptive-MAD off (plain MAD5) 0.5812 ± 0.0331, vote
+ensemble 0.5788 ± 0.0330, tuned SVR alone 0.5728 ± 0.0281; under 5×2 with
+stack2: adaptive MAD 0.5838, plain MAD5 0.5804. Comfortably above the public
+baseline of 0.5. Note: tuning and final evaluation share the seed, so the
+headline carries the usual mild optimism of model selection.
 
 The preprocessing alternatives (imputation / outlier / selection methods) were
 swept in **`preproc_lab/`** — see its README for the full table. Short version:
@@ -168,10 +169,11 @@ spread (linear calibration on OOF) gains only +0.002 R², so we don't.
 ## Draft method description (adapt in your own words for the Moodle form)
 
 > We predict brain age from the 832 perturbed MRI features with a scikit-learn
-> pipeline evaluated by repeated 5-fold cross-validation (R² = 0.579 ± 0.035
+> pipeline evaluated by repeated 5-fold cross-validation (R² = 0.585 ± 0.034
 > on the training set). Preprocessing, all refit inside every CV fold:
-> (1) outliers are detected per feature with a median/MAD rule (8 robust
-> sigmas) and set to NaN; (2) missing values (~7.6%) are imputed with the
+> (1) outliers are detected per feature with a median/MAD rule using a
+> distribution-aware threshold (looser for skewed/heavy-tailed features) and
+> set to NaN; (2) missing values (~7.6%) are imputed with the
 > per-feature median; (3) a quantile transform to a normal distribution makes
 > the features scale-invariant, which neutralizes the block of features
 > rescaled to ~1e6; (4) univariate F-test feature selection keeps the top 180

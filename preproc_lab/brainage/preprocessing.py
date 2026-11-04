@@ -136,27 +136,159 @@ class WinsorClipper(_Columnwise):
         return np.clip(np.asarray(X, dtype=float), self.lo_, self.hi_)
 
 
-class RowNeutralizer(_Columnwise):
-    """Row-level outlier detection (IsolationForest, fit on the training fold
-    after imputation+scaling). Flagged rows are replaced by the column medians,
-    i.e. neutralized toward the 'average' subject instead of dropped."""
+class PreciseSpikeMasker(_Columnwise):
+    """Case-by-case spike rule matching the known corruption: mask a high-side
+    entry only if BOTH (a) it is beyond `z_hi` robust sigmas AND (b) it is a
+    multiplicative spike, x > ratio * median (only when median > 0); plus any
+    entry beyond `z_abs` sigmas on either side. Legitimate tail values of
+    heavy-tailed features are kept because they fail the ratio condition."""
 
-    def __init__(self, contamination=0.02, seed=42):
+    def __init__(self, z_hi=5.0, ratio=3.0, z_abs=12.0):
+        self.z_hi = z_hi
+        self.ratio = ratio
+        self.z_abs = z_abs
+
+    def fit(self, X, y=None):
+        self._set_names(X)
+        X = np.asarray(X, dtype=float)
+        self.med_, self.scale_ = _robust_scale(X)
+        return self
+
+    def transform(self, X):
+        X = np.array(X, dtype=float)
+        z = (X - self.med_) / self.scale_
+        ratio_cond = np.where(self.med_ > 0, X > self.ratio * self.med_, False)
+        mask = ((z > self.z_hi) & ratio_cond) | (np.abs(z) > self.z_abs)
+        X[mask] = np.nan
+        return X
+
+
+class RatioMasker(_Columnwise):
+    """Pure multiplicative-spike rule: mask x > ratio * median (median > 0 only)."""
+
+    def __init__(self, ratio=4.0):
+        self.ratio = ratio
+
+    def fit(self, X, y=None):
+        self._set_names(X)
+        self.med_ = np.nanmedian(np.asarray(X, dtype=float), axis=0)
+        return self
+
+    def transform(self, X):
+        X = np.array(X, dtype=float)
+        cond = np.where(self.med_ > 0, X > self.ratio * self.med_, False)
+        X[cond] = np.nan
+        return X
+
+
+class TukeyMasker(_Columnwise):
+    """Tukey upper/lower fences per feature: mask x outside [q1 - k*IQR, q3 + k*IQR]."""
+
+    def __init__(self, k=3.0):
+        self.k = k
+
+    def fit(self, X, y=None):
+        self._set_names(X)
+        X = np.asarray(X, dtype=float)
+        self.q1_, self.q3_ = np.nanpercentile(X, [25, 75], axis=0)
+        return self
+
+    def transform(self, X):
+        X = np.array(X, dtype=float)
+        iqr = self.q3_ - self.q1_
+        X[(X < self.q1_ - self.k * iqr) | (X > self.q3_ + self.k * iqr)] = np.nan
+        return X
+
+
+class AdaptiveMADMasker(_Columnwise):
+    """Per-feature threshold: heavy-tailed / right-skewed features get a looser
+    high-side threshold, light-tailed ones a tighter one."""
+
+    def __init__(self, base=5.0, skew_bonus=1.5, skew_cut=1.0, kurt_cut=10.0, kurt_bonus=3.0):
+        self.base = base
+        self.skew_bonus = skew_bonus
+        self.skew_cut = skew_cut
+        self.kurt_cut = kurt_cut
+        self.kurt_bonus = kurt_bonus
+
+    def fit(self, X, y=None):
+        self._set_names(X)
+        X = np.asarray(X, dtype=float)
+        self.med_, self.scale_ = _robust_scale(X)
+        Xc = np.where(np.isnan(X), np.nanmedian(X, axis=0), X)
+        mu = Xc.mean(axis=0)
+        sd = Xc.std(axis=0)
+        sd = np.where(sd > 0, sd, 1.0)
+        m3 = ((Xc - mu) ** 3).mean(axis=0) / sd**3
+        m4 = ((Xc - mu) ** 4).mean(axis=0) / sd**4 - 3.0
+        hi = np.full(X.shape[1], self.base)
+        hi = np.where((m3 > self.skew_cut) | (m4 > self.kurt_cut), hi + self.kurt_bonus, hi)
+        hi = np.where(m3 > self.skew_cut, hi * self.skew_bonus, hi)
+        self.thresh_hi_ = hi
+        self.thresh_lo_ = np.full(X.shape[1], self.base)
+        return self
+
+    def transform(self, X):
+        X = np.array(X, dtype=float)
+        z = (X - self.med_) / self.scale_
+        X[(z > self.thresh_hi_) | (z < -self.thresh_lo_)] = np.nan
+        return X
+
+
+class EmpiricalWinsor(_Columnwise):
+    """Clip each feature at its empirical [1-q, q] quantiles instead of masking."""
+
+    def __init__(self, q=0.995):
+        self.q = q
+
+    def fit(self, X, y=None):
+        self._set_names(X)
+        X = np.asarray(X, dtype=float)
+        self.lo_, self.hi_ = np.nanpercentile(X, [100 * (1 - self.q), 100 * self.q], axis=0)
+        return self
+
+    def transform(self, X):
+        return np.clip(np.asarray(X, dtype=float), self.lo_, self.hi_)
+
+
+class RowNeutralizer(_Columnwise):
+    """Row-level outlier detection (iforest | lof | mcd), fit on the training
+    fold after imputation+scaling. Flagged rows are replaced by the column
+    medians, i.e. neutralized toward the 'average' subject instead of dropped."""
+
+    def __init__(self, contamination=0.02, seed=42, method="iforest"):
         self.contamination = contamination
         self.seed = seed
+        self.method = method
 
     def fit(self, X, y=None):
         self._set_names(X)
         X = np.asarray(X, dtype=float)
         self.med_ = np.nanmedian(X, axis=0)
-        self.if_ = IsolationForest(contamination=self.contamination,
-                                   random_state=self.seed, n_jobs=-1)
-        self.if_.fit(np.nan_to_num(X, nan=0.0))
+        Xn = np.nan_to_num(X, nan=0.0)
+        if self.method == "iforest":
+            from sklearn.ensemble import IsolationForest
+            self.det_ = IsolationForest(contamination=self.contamination,
+                                        random_state=self.seed, n_jobs=-1)
+            self.det_.fit(Xn)
+        elif self.method == "lof":
+            from sklearn.neighbors import LocalOutlierFactor
+            self.det_ = LocalOutlierFactor(n_neighbors=20,
+                                           contamination=self.contamination,
+                                           novelty=True, n_jobs=-1)
+            self.det_.fit(Xn)
+        elif self.method == "mcd":
+            from sklearn.covariance import EllipticEnvelope
+            self.det_ = EllipticEnvelope(contamination=self.contamination,
+                                         random_state=self.seed)
+            self.det_.fit(Xn)
+        else:
+            raise ValueError(self.method)
         return self
 
     def transform(self, X):
         X = np.array(X, dtype=float)
-        flagged = self.if_.predict(np.nan_to_num(X, nan=0.0)) == -1
+        flagged = self.det_.predict(np.nan_to_num(X, nan=0.0)) == -1
         X[flagged] = self.med_
         return X
 
@@ -177,6 +309,20 @@ def make_outlier_step(cfg):
         return WinsorClipper(cfg.outlier_thresh)
     if mode == "iforest":
         return None  # handled after qt by RowNeutralizer
+    if mode == "lof":
+        return None
+    if mode == "mcd":
+        return None
+    if mode == "spike":
+        return PreciseSpikeMasker(cfg.outlier_thresh, cfg.outlier_ratio)
+    if mode == "ratio":
+        return RatioMasker(cfg.outlier_ratio)
+    if mode == "tukey":
+        return TukeyMasker(cfg.outlier_thresh)
+    if mode == "adakurt":
+        return AdaptiveMADMasker(cfg.outlier_thresh)
+    if mode == "winsor_q":
+        return EmpiricalWinsor(cfg.cap_quantile)
     raise ValueError(f"unknown outlier_mode {mode!r}")
 
 
@@ -234,6 +380,119 @@ class CorrPruner(_Columnwise):
         return names[self.support_]
 
 
+def _scores(score_func, X, y):
+    s = score_func(X, y)
+    if isinstance(s, tuple):  # f_regression returns (F, p-values)
+        s = s[0]
+    return np.nan_to_num(np.asarray(s, dtype=float), nan=-np.inf)
+
+
+class _SelectorBase(_Columnwise):
+    def get_support(self):
+        return self.support_
+
+    def transform(self, X):
+        return np.asarray(X, dtype=float)[:, self.support_]
+
+    def get_feature_names_out(self, input_features=None):
+        names = np.asarray(input_features, dtype=object) if input_features is not None \
+            else self.feature_names_in_
+        return names[self.support_]
+
+
+class BorutaSelector(_SelectorBase):
+    """Boruta-style: shadow (permuted) copies of every feature; a real feature is
+    kept if its ExtraTrees importance beats the best shadow importance; the
+    kept set is capped at k by importance rank."""
+
+    def __init__(self, k=180, n_estimators=200, seed=42):
+        self.k = k
+        self.n_estimators = n_estimators
+        self.seed = seed
+
+    def fit(self, X, y=None):
+        self._set_names(X)
+        X = np.asarray(X, dtype=float)
+        rng = np.random.default_rng(self.seed)
+        Xs = np.hstack([X, np.apply_along_axis(rng.permutation, 0, X)])
+        et = ExtraTreesRegressor(n_estimators=self.n_estimators, min_samples_leaf=2,
+                                 random_state=self.seed, n_jobs=-1).fit(Xs, y)
+        imp = et.feature_importances_
+        n = X.shape[1]
+        thresh = imp[n:].max()
+        keep = np.where(imp[:n] > thresh)[0]
+        if len(keep) > self.k:  # cap by importance
+            keep = keep[np.argsort(imp[keep])[::-1][: self.k]]
+        self.support_ = np.zeros(n, dtype=bool)
+        self.support_[keep] = True
+        return self
+
+
+class StabilitySelector(_SelectorBase):
+    """Stability selection: on many row subsamples, take the top-k by the score
+    function; keep features selected in at least `freq` of the subsamples
+    (capped at k by mean rank)."""
+
+    def __init__(self, k=180, score_func=f_regression, n_sub=20, frac=0.8, freq=0.5, seed=42):
+        self.k = k
+        self.score_func = score_func
+        self.n_sub = n_sub
+        self.frac = frac
+        self.freq = freq
+        self.seed = seed
+
+    def fit(self, X, y=None):
+        self._set_names(X)
+        X = np.asarray(X, dtype=float)
+        rng = np.random.default_rng(self.seed)
+        n = X.shape[0]
+        count = np.zeros(X.shape[1])
+        score_sum = np.zeros(X.shape[1])
+        for _ in range(self.n_sub):
+            idx = rng.choice(n, size=int(self.frac * n), replace=False)
+            s = _scores(self.score_func, X[idx], y[idx])
+            top = np.argsort(s)[::-1][: self.k]
+            count[top] += 1
+            score_sum += s
+        keep = np.where(count >= self.freq * self.n_sub)[0]
+        if len(keep) > self.k:
+            keep = keep[np.argsort(score_sum[keep])[::-1][: self.k]]
+        if len(keep) == 0:  # fallback: top-k by mean score
+            keep = np.argsort(score_sum)[::-1][: self.k]
+        self.support_ = np.zeros(X.shape[1], dtype=bool)
+        self.support_[keep] = True
+        return self
+
+
+class ClusterSelector(_SelectorBase):
+    """Diversity-aware selection: cluster correlated features (|corr| > thresh),
+    keep the best-scoring feature of each cluster, then fill the remaining
+    budget with the next-best unclustered features — avoids spending k on
+    near-duplicates."""
+
+    def __init__(self, k=180, score_func=f_regression, thresh=0.8):
+        self.k = k
+        self.score_func = score_func
+        self.thresh = thresh
+
+    def fit(self, X, y=None):
+        self._set_names(X)
+        X = np.asarray(X, dtype=float)
+        n = X.shape[1]
+        s = _scores(self.score_func, X, y)
+        C = np.nan_to_num(np.corrcoef(X, rowvar=False))
+        order = np.argsort(s)[::-1]
+        keep, clustered = [], np.zeros(n, dtype=bool)
+        for j in order:  # greedy: take j unless a kept feature is its correlate
+            if not clustered[j]:
+                keep.append(j)
+                clustered |= np.abs(C[j]) > self.thresh
+        keep = np.array(keep[: self.k])
+        self.support_ = np.zeros(n, dtype=bool)
+        self.support_[keep] = True
+        return self
+
+
 def make_selector(cfg, k=None):
     k = cfg.n_features if k is None else k
     sel = cfg.selection
@@ -251,6 +510,26 @@ def make_selector(cfg, k=None):
             ExtraTreesRegressor(n_estimators=200, min_samples_leaf=2,
                                 random_state=cfg.seed, n_jobs=-1),
             max_features=None if k >= 832 else int(k), threshold=-np.inf)
+    if sel == "ridge":
+        from sklearn.linear_model import Ridge
+        return SelectFromModel(Ridge(alpha=100.0),
+                               max_features=None if k >= 832 else int(k),
+                               threshold=-np.inf)
+    if sel == "boruta":
+        return BorutaSelector(k if k < 832 else 832, seed=cfg.seed)
+    if sel == "stability":
+        return StabilitySelector(k if k < 832 else 832,
+                                 score_func=make_score_func(cfg.score_func, cfg.seed),
+                                 seed=cfg.seed)
+    if sel == "cluster":
+        return ClusterSelector(k if k < 832 else 832,
+                               score_func=make_score_func(cfg.score_func, cfg.seed),
+                               thresh=cfg.corr_thresh)
+    if sel == "rfecv":
+        from sklearn.feature_selection import RFECV
+        from sklearn.linear_model import Ridge
+        return RFECV(Ridge(alpha=10.0), step=0.2, cv=3,
+                     min_features_to_select=50, scoring="r2", n_jobs=-1)
     raise ValueError(f"unknown selection {sel!r}")
 
 
@@ -377,8 +656,9 @@ def make_preprocessor(cfg, k=None):
             steps.append(("qt", QuantileTransformer(output_distribution="normal",
                                                     n_quantiles=cfg.n_quantiles,
                                                     random_state=cfg.seed)))
-    if cfg.outlier_mode == "iforest":
-        steps.append(("rows", RowNeutralizer(cfg.row_contamination, cfg.seed)))
+    if cfg.outlier_mode in ("iforest", "lof", "mcd"):
+        steps.append(("rows", RowNeutralizer(cfg.row_contamination, cfg.seed,
+                                             method=cfg.outlier_mode)))
     if cfg.selection == "corr_kbest":
         steps.append(("corr", CorrPruner(cfg.corr_thresh)))
         steps.append(("select", SelectKBest(make_score_func(cfg.score_func, cfg.seed),

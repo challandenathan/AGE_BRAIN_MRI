@@ -22,9 +22,13 @@ class Config:
     seed: int = 42
 
     # --- subtask 1: outlier detection ---
-    outlier_mode: str = "mad"       # mad | mad_high | iqr | winsor | zscore | iforest | none
-    outlier_thresh: float = 8.0     # robust sigmas (or contamination for iforest)
-    row_contamination: float = 0.02 # IsolationForest contamination for iforest rows
+    outlier_mode: str = "mad"       # mad | mad_high | iqr | winsor | zscore | iforest |
+                                    # spike | ratio | tukey | adakurt | winsor_q | lof | mcd | none
+    outlier_thresh: float = 8.0     # robust sigmas (or contamination for row detectors)
+    outlier_ratio: float = 3.0      # spike rule: also require x > ratio * median
+    cap_quantile: float = 0.995     # winsor_q: clip at this empirical quantile
+    row_contamination: float = 0.02 # contamination for row detectors
+    row_method: str = "iforest"     # iforest | lof | mcd
 
     # --- preprocessing ---
     impute: str = "median"          # median | mean | zero
@@ -36,10 +40,11 @@ class Config:
                                     # on the k selected features (info-preserving)
 
     # --- subtask 2: feature selection ---
-    selection: str = "kbest"        # kbest | lasso | tree | pca | corr_kbest
+    selection: str = "kbest"        # kbest | lasso | tree | pca | corr_kbest | boruta |
+                                    # ridge | stability | cluster | rfecv
     n_features: int = 180           # k features kept (n_components for pca)
     score_func: str = "f_regression"  # "f_regression" | "mutual_info" | "spearman"
-    corr_thresh: float = 0.95       # for corr_kbest: drop features correlated above this
+    corr_thresh: float = 0.95       # for corr_kbest / cluster: correlation threshold
 
     # --- evaluation ---
     n_splits: int = 5

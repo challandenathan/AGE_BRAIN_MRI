@@ -129,3 +129,30 @@ BASE 0.5777 vs no-mask 0.5775 — a tie.
 The stacking meta-learner (RidgeCV on the members' out-of-fold predictions)
 beats the fixed 0.3/0.4/0.3 average: **0.5804 vs 0.5777**. Verified under the
 full 5×3 protocol before adoption (see git history / main README).
+
+## Sweep #3 — precise case-by-case outlier rules, more selectors, exotic models
+
+`run_sweeps3.py` + follow-ups → `results/sweep3_*.csv` (5×2; C/D with tuned SVR,
+E with each model itself, finalists with stack2).
+
+**C. Precise outlier rules** (tuned SVR): adaptive per-feature MAD (looser
+high-side threshold for skewed/heavy-tailed features) **0.5772** > Tukey fence
+k=3 0.5738 > base MAD5 0.5725 > precise "spike" rules (z>5 AND x>ratio·med)
+0.564–0.566 > empirical winsor q99.5 0.5590 > LOF rows 0.5361. MCD/EllipticEnvelope
+is singular at p≈n — not viable. The ratio/spike conditions are *too* precise:
+they miss genuine outliers, so the plain adaptive MAD wins.
+
+**D. Selection methods** (tuned SVR): stability selection (top-k on 20
+subsamples, keep freq≥0.5) 0.5726 ± 0.0274 ≈ base F-180 0.5725; Spearman 0.5743;
+cluster-diverse 0.5164; Boruta 0.4724; ridge-coef 0.4124; RFECV 0.3803. No
+alternative beats plain univariate F-test top-180.
+
+**E. Exotic models** (base preprocessing): stack2 0.5804 (ref) > stack3 (+ET
+member) 0.5791 > monotonic-XGB (rho-sign constraints) 0.5355 = plain XGB >
+CatBoost 0.5024 > ARD 0.4404 > OMP 0.4158 > RANSAC 0.3208 > QuantileRegressor
+−0.002. None beats stack2.
+
+**Finalists with stack2 (5×2)**: base MAD5 0.5804, **adaptive MAD 0.5838**,
+stability 0.5790, adaptive+stability 0.5827 → **adaptive per-feature MAD adopted
+in the main project** (`outlier_mode="adakurt"`); stability selection not
+adopted (no gain with the ensemble).
