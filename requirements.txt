@@ -1,0 +1,11 @@
+numpy >= 2.3.3
+pandas >= 3.0
+scikit-learn >= 1.8
+scipy
+matplotlib
+ipykernel
+plotly >= 6
+pyod
+# optional: used as the boosting base learner of the stack when its native
+# OpenMP runtime is available; otherwise sklearn's HistGradientBoosting is used
+xgboost
