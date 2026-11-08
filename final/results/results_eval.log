@@ -1,0 +1,3 @@
+train (1212, 832), test (776, 832), signal block: 229 features
+  winner stack 5x3 CV                      R2 = 0.6163 +/- 0.0391 (min 0.547 max 0.673)
+done in 170s

@@ -1,0 +1,10 @@
+{
+ "svr": {"C": 26.10157215682536, "gamma": 0.008254041852680182, "epsilon": 0.005},
+ "xgb": {"n_estimators": 800, "max_depth": 5, "learning_rate": 0.04, "subsample": 0.6, "colsample_bytree": 0.5, "reg_lambda": 3.0, "random_state": 42, "n_jobs": -1},
+ "gp": {"alpha": 1e-10, "kernel": "matern2.5", "n_restarts": 2},
+ "specs": {
+  "svr": {"mask": "logmad", "log": true, "mask_base": 4.0, "block": "trans", "k": 200, "score": "f"},
+  "gp": {"mask": "adakurt", "block": "trans", "k": 229, "score": "f"},
+  "xgb": {"mask": "adakurt", "block": "trans", "k": 300, "score": "f"}
+ }
+}
