@@ -1,0 +1,14 @@
+=== self-training simulation (honest 5x2 outer CV) ===
+  full-tr w=0.0: mean R2 = 0.5753 +/- 0.0302
+  svr    w=0.0: mean R2 = 0.5465 +/- 0.0357
+  svr    w=0.3: mean R2 = 0.5471 +/- 0.0360
+  svr    w=0.7: mean R2 = 0.5471 +/- 0.0360
+  svr    w=1.0: mean R2 = 0.5471 +/- 0.0360
+  vote   w=0.0: mean R2 = -0.1852 +/- 0.3033
+  vote   w=0.3: mean R2 = -0.1872 +/- 0.3029
+  vote   w=0.7: mean R2 = -0.1869 +/- 0.3049
+  vote   w=1.0: mean R2 = -0.1908 +/- 0.3029
+  xgb    w=0.0: mean R2 = 0.5253 +/- 0.0400
+  xgb    w=0.3: mean R2 = 0.5241 +/- 0.0404
+  xgb    w=0.7: mean R2 = 0.5270 +/- 0.0395
+  xgb    w=1.0: mean R2 = 0.5236 +/- 0.0444

@@ -1,0 +1,6 @@
+{
+ "pre__select__k": 200,
+ "model__regressor__gamma": 0.008254041852680182,
+ "model__regressor__epsilon": 0.005,
+ "model__regressor__C": 26.10157215682536
+}

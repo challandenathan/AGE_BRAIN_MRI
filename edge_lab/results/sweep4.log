@@ -1,0 +1,26 @@
+=== (a) re-imputation of original NaNs on the selected 180 (probe) ===
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/feature_selection/_univariate_selection.py:380: RuntimeWarning: invalid value encountered in sqrt
+  X_norms = np.sqrt(row_norms(X.T, squared=True) - n_samples * X_means**2)
+  svr top180 median (ref): OOF R2 = 0.5711
+  svr top180 KNN3 re-impute: OOF R2 = 0.4072
+  svr top180 KNN5 re-impute: OOF R2 = 0.4201
+  svr top180 KNN10 re-impute: OOF R2 = 0.4453
+/Library/Frameworks/Python.framework/Versions/3.13/lib/python3.13/site-packages/sklearn/impute/_iterative.py:867: ConvergenceWarning: [IterativeImputer] Early stopping criterion not reached.
+  warnings.warn(
+  svr top180 iterative re-impute: OOF R2 = 0.4377
+  xgb top180 median (ref): OOF R2 = 0.5462
+  xgb top180 KNN5 re-impute: OOF R2 = 0.5501
+  xgb top180 KNN10 re-impute: OOF R2 = 0.5503
+
+=== (b) self-training simulation (honest outer CV) ===
+  sample_weight routing failed: ValueError Passing extra keyword arguments to StackingRegressor.fit is only supported if en
+  sample_weight routing failed: ValueError Passing extra keyword arguments to StackingRegressor.fit is only supported if en
+  sample_weight routing failed: ValueError Passing extra keyword arguments to StackingRegressor.fit is only supported if en
+  sample_weight routing failed: ValueError Passing extra keyword arguments to StackingRegressor.fit is only supported if en
+  sample_weight routing failed: ValueError Passing extra keyword arguments to StackingRegressor.fit is only supported if en
+  sample_weight routing failed: ValueError Passing extra keyword arguments to StackingRegressor.fit is only supported if en
+  sample_weight routing failed: ValueError Passing extra keyword arguments to StackingRegressor.fit is only supported if en
+  sample_weight routing failed: ValueError Passing extra keyword arguments to StackingRegressor.fit is only supported if en
+  sample_weight routing failed: ValueError Passing extra keyword arguments to StackingRegressor.fit is only supported if en
+  sample_weight routing failed: ValueError Passing extra keyword arguments to StackingRegressor.fit is only supported if en
+  w=full-tr-ref: mean R2 = 0.5821 +/- 0.0323
